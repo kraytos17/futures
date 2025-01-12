@@ -1,3 +1,4 @@
+use log::{debug, error};
 use std::{fmt::Debug, mem};
 
 #[derive(Debug)]
@@ -145,7 +146,7 @@ where
     Fn: FnOnce(F1::Output) -> F2,
 {
     pub fn new(future: F1, then_fn: Fn) -> Self {
-        println!("Creating new Then future having future {:?}", future);
+        debug!("Creating new Then future having future {:?}", future);
         Self {
             state: ThenState::First { future, then_fn },
         }
@@ -165,19 +166,19 @@ where
     type Error = F1::Error;
 
     fn poll(&mut self) -> Result<FutResult<Self::Output>, Self::Error> {
-        println!("Polling Then future");
+        debug!("Polling Then future");
         let result = match mem::replace(&mut self.state, ThenState::Done) {
             ThenState::First {
                 mut future,
                 then_fn,
             } => {
-                println!("Then future in First state");
+                debug!("Then future in First state");
                 match future.poll()? {
                     FutResult {
                         state: FutState::Done,
                         value: Some(value),
                     } => {
-                        println!("First future completed with value");
+                        debug!("First future completed with value {:?}", value);
                         self.state = ThenState::Second(then_fn(value));
                         Ok(FutResult::pending())
                     }
@@ -185,7 +186,7 @@ where
                         state: FutState::Pending,
                         ..
                     } => {
-                        println!("First future still pending");
+                        debug!("First future still pending");
                         self.state = ThenState::First { future, then_fn };
                         Ok(FutResult::pending())
                     }
@@ -193,7 +194,7 @@ where
                         state: FutState::Waiting,
                         ..
                     } => {
-                        println!("First future waiting");
+                        debug!("First future waiting");
                         self.state = ThenState::First { future, then_fn };
                         Ok(FutResult {
                             state: FutState::Waiting,
@@ -204,35 +205,35 @@ where
                         state: FutState::Done,
                         value: None,
                     } => {
-                        println!("ERROR: First future completed without value!");
+                        error!("ERROR: First future completed without value!");
                         panic!("First future polled without any value")
                     }
                 }
             }
             ThenState::Second(mut future) => {
-                println!("Then future in Second state");
+                debug!("Then future in Second state");
                 match future.poll() {
                     Ok(res) => {
-                        println!("Second future poll result state: {:?}", res.state);
+                        debug!("Second future poll result state: {:?}", res.state);
                         if res.state != FutState::Done {
                             self.state = ThenState::Second(future);
                         }
                         Ok(res)
                     }
                     Err(e) => {
-                        println!("Second future poll resulted in error {:?}", e);
+                        error!("Second future poll resulted in error {:?}", e);
                         self.state = ThenState::Second(future);
                         Err(e)
                     }
                 }
             }
             ThenState::Done => {
-                println!("ERROR: Then future polled after completion!");
+                error!("ERROR: Then future polled after completion!");
                 panic!("ThenFut polled after completion")
             }
         };
 
-        println!(
+        debug!(
             "Then future poll complete with result: {:?}",
             result.as_ref().map(|r| &r.state)
         );
@@ -241,18 +242,18 @@ where
     }
 
     fn destroy(&mut self) {
-        println!("Destroying Then future");
+        debug!("Destroying Then future");
         match self.state {
             ThenState::First { ref mut future, .. } => {
-                println!("Destroying First state future");
+                debug!("Destroying First state future");
                 future.destroy();
             }
             ThenState::Second(ref mut future) => {
-                println!("Destroying Second state future");
+                debug!("Destroying Second state future");
                 future.destroy();
             }
             ThenState::Done => {
-                println!("Destroying Done state");
+                debug!("Destroying Done state");
             }
         }
     }

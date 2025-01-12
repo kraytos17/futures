@@ -1,24 +1,34 @@
-use futures::{
-    fut_test::{
-        test_chained_futures, test_poll_runner, test_sequential_execution, test_simple_runner,
-    },
-    futures::FutError,
+use futures::fut_test::{
+    test_chained_futures, test_poll_runner, test_sequential_execution, test_simple_runner,
 };
+use log::{debug, error, info};
+use simple_logger::SimpleLogger;
 
 mod futures;
 
-fn main() -> Result<(), FutError> {
-    println!("=== Testing Simple Runner ===\n");
-    test_simple_runner()?;
+fn main() {
+    SimpleLogger::new().init().unwrap();
+    info!("Application started");
 
-    println!("\n=== Testing Poll Runner ===\n");
-    test_poll_runner()?;
+    debug!("=== Testing Simple Runner ===\n");
+    if let Err(e) = test_simple_runner() {
+        error!("Simple runner test failed: {:?}", e);
+    }
 
-    println!("\n=== Testing Sequential Future Execution ===\n");
-    test_sequential_execution()?;
+    debug!("=== Testing Poll Runner ===\n");
+    if let Err(e) = test_poll_runner() {
+        error!("Poll runner test failed: {:?}", e);
+    }
 
-    println!("\n=== Testing Chained Future Execution ===\n");
-    test_chained_futures()?;
+    debug!("=== Testing Sequential Execution ===\n");
+    if let Err(e) = test_sequential_execution() {
+        error!("Sequential execution test failed: {:?}", e);
+    }
 
-    Ok(())
+    debug!("=== Testing Chained Futures ===\n");
+    if let Err(e) = test_chained_futures() {
+        error!("Chained futures test failed: {:?}", e);
+    }
+
+    info!("All tests completed");
 }

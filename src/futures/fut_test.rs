@@ -1,5 +1,6 @@
 use super::futures::{Done, FutError, FutResult, FutState, Future};
 use crate::futures::futures::Then;
+use log::debug;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -135,7 +136,7 @@ pub fn test_simple_runner() -> Result<(), FutError> {
     runner.schedule(future_chain);
     runner.run()?;
 
-    println!("Simple runner completed successfully");
+    debug!("Simple runner completed successfully");
 
     Ok(())
 }
@@ -152,7 +153,8 @@ pub fn test_poll_runner() -> Result<(), FutError> {
 
     runner.schedule(complex_chain);
     runner.run()?;
-    println!("Poll runner completed successfully");
+
+    debug!("Poll runner completed successfully");
 
     Ok(())
 }
@@ -240,8 +242,8 @@ pub fn test_sequential_execution() -> Result<(), FutError> {
     runner.run()?;
 
     let tracker = tracker.borrow();
-    println!("Execution order: {:?}", tracker.execution_order);
-    println!("Results: {:?}", tracker.results);
+    debug!("Execution order: {:?}", tracker.execution_order);
+    debug!("Results: {:?}", tracker.results);
 
     assert_eq!(tracker.results, vec![5, 10]);
 
@@ -278,8 +280,8 @@ pub fn test_chained_futures() -> Result<(), FutError> {
     runner.run()?;
 
     let tracker = tracker.borrow();
-    println!("Chain execution order: {:?}", tracker.execution_order);
-    println!("Chain results: {:?}", tracker.results);
+    debug!("Chain execution order: {:?}", tracker.execution_order);
+    debug!("Chain results: {:?}", tracker.results);
 
     assert_eq!(tracker.results.last(), Some(&10));
 
