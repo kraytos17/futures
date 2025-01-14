@@ -1,10 +1,18 @@
-use super::futures::{Done, FutError, FutResult, FutState, Future};
-use crate::futures::futures::Then;
+use crate::futures::{Chain, Done, FutError, FutResult, FutState, Future};
 use log::debug;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::rc::Rc;
+
+pub trait FutureRunner {
+    fn schedule<F>(&mut self, future: F)
+    where
+        F: Future<Output = usize, Error = FutError> + 'static;
+
+    fn is_empty(&self) -> bool;
+    fn run(&mut self) -> Result<(), FutError>;
+}
 
 pub struct SimpleRunner {
     futs: VecDeque<Box<dyn Future<Output = usize, Error = FutError>>>,
@@ -16,19 +24,21 @@ impl SimpleRunner {
             futs: VecDeque::new(),
         }
     }
+}
 
-    pub fn schedule<F>(&mut self, fut: F)
+impl FutureRunner for SimpleRunner {
+    fn schedule<F>(&mut self, fut: F)
     where
         F: Future<Output = usize, Error = FutError> + 'static,
     {
         self.futs.push_back(Box::new(fut));
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.futs.is_empty()
     }
 
-    pub fn run(&mut self) -> Result<(), FutError> {
+    fn run(&mut self) -> Result<(), FutError> {
         while !self.is_empty() {
             let mut i = 0;
             while i < self.futs.len() {
@@ -46,7 +56,7 @@ impl SimpleRunner {
                         ..
                     } => {
                         if let Some(mut f) = self.futs.remove(i) {
-                            f.destroy();
+                            f.cleanup();
                         }
                     }
                 }
@@ -66,23 +76,36 @@ pub struct PollRunner {
 
 impl PollRunner {
     pub fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
+        Default::default()
     }
 
-    pub fn schedule<F>(&mut self, fut: F)
+    fn handle_sleeping_futures(&mut self) {
+        if self.sleeping.is_empty() {
+            return;
+        }
+
+        let remaining = VecDeque::new();
+        while let Some(future) = self.sleeping.pop_front() {
+            self.pending.push_back(future);
+        }
+
+        self.sleeping = remaining;
+    }
+}
+
+impl FutureRunner for PollRunner {
+    fn schedule<F>(&mut self, fut: F)
     where
         F: Future<Output = usize, Error = FutError> + 'static,
     {
         self.pending.push_back(Box::new(fut));
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.active.is_empty() && self.sleeping.is_empty() && self.pending.is_empty()
     }
 
-    pub fn run(&mut self) -> Result<(), FutError> {
+    fn run(&mut self) -> Result<(), FutError> {
         while !self.is_empty() {
             if !self.pending.is_empty() {
                 self.active.append(&mut self.pending);
@@ -105,7 +128,7 @@ impl PollRunner {
                     FutResult {
                         state: FutState::Done,
                         ..
-                    } => future.destroy(),
+                    } => future.cleanup(),
                 }
             }
 
@@ -113,26 +136,13 @@ impl PollRunner {
         }
         Ok(())
     }
-
-    fn handle_sleeping_futures(&mut self) {
-        if self.sleeping.is_empty() {
-            return;
-        }
-
-        let remaining = VecDeque::new();
-        while let Some(future) = self.sleeping.pop_front() {
-            self.pending.push_back(future);
-        }
-
-        self.sleeping = remaining;
-    }
 }
 
 pub fn test_simple_runner() -> Result<(), FutError> {
     let mut runner = SimpleRunner::new();
     runner.schedule(Done::new(42));
 
-    let future_chain = Then::new(Done::new(10), |x| Done::new(x + 5));
+    let future_chain = Chain::new(Done::new(10), |x| Done::new(x + 5));
     runner.schedule(future_chain);
     runner.run()?;
 
@@ -147,8 +157,8 @@ pub fn test_poll_runner() -> Result<(), FutError> {
     runner.schedule(Done::new(1));
     runner.schedule(Done::new(2));
 
-    let complex_chain = Then::new(Done::new(3), |x| {
-        Then::new(Done::new(x + 1), |y| Done::new(y * 2))
+    let complex_chain = Chain::new(Done::new(3), |x| {
+        Chain::new(Done::new(x + 1), |y| Done::new(y * 2))
     });
 
     runner.schedule(complex_chain);
@@ -222,11 +232,11 @@ impl Future for TrackDone<usize> {
         }
     }
 
-    fn destroy(&mut self) {
+    fn cleanup(&mut self) {
         self.tracker
             .borrow_mut()
             .track_exec_order(&format!("Destroying {}", self.id));
-        self.inner.destroy();
+        self.inner.cleanup();
     }
 }
 
@@ -272,7 +282,7 @@ pub fn test_chained_futures() -> Result<(), FutError> {
 
     let initial = TrackDone::new(5, Rc::clone(&tracker), "Initial");
     let tracker_clone = Rc::clone(&tracker);
-    let chain = Then::new(initial, move |x| {
+    let chain = Chain::new(initial, move |x| {
         TrackDone::new(x * 2, Rc::clone(&tracker_clone), "Chained")
     });
 
