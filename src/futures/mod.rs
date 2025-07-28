@@ -33,7 +33,7 @@ impl<T: Debug> FutResult<T> {
     }
 
     pub fn finished(val: T) -> Self {
-        debug!("Creating finished FutResult with value {:?}", val);
+        debug!("Creating finished FutResult with value {val:?}");
         Self {
             state: FutState::Done,
             value: Some(val),
@@ -56,7 +56,7 @@ pub struct Done<T> {
 
 impl<T: Debug> Done<T> {
     pub fn new(val: T) -> Self {
-        debug!("Creating new Done future with value {:?}", val);
+        debug!("Creating new Done future with value {val:?}");
         Self { res: Some(val) }
     }
 }
@@ -69,7 +69,7 @@ impl<T: Clone + Debug> Future for Done<T> {
         debug!("Polling Done future");
 
         let value = self.res.take().ok_or(FutError::PolledAfterCompletion)?;
-        debug!("Done future poll result: {:?}", value);
+        debug!("Done future poll result: {value:?}");
 
         Ok(FutResult::finished(value))
     }
@@ -86,7 +86,7 @@ pub struct Failed<T> {
 
 impl<T: Debug> Failed<T> {
     pub fn _new(err: T) -> Self {
-        debug!("Creating new Reject future with err {:?}", err);
+        debug!("Creating new Reject future with err {err:?}");
         Self { err: Some(err) }
     }
 }
@@ -138,7 +138,7 @@ where
     Fn: FnOnce(F1::Output) -> F2,
 {
     pub fn new(future: F1, transform: Fn) -> Self {
-        debug!("Creating new Chain future having future {:?}", future);
+        debug!("Creating new Chain future having future {future:?}");
         Self {
             state: ChainState::First { future, transform },
         }
@@ -170,7 +170,7 @@ where
                         state: FutState::Done,
                         value: Some(value),
                     } => {
-                        debug!("First future completed with value {:?}", value);
+                        debug!("First future completed with value {value:?}");
                         self.state = ChainState::Second(then_fn(value));
                         Ok(FutResult::pending())
                     }
@@ -219,7 +219,7 @@ where
                         Ok(res)
                     }
                     Err(e) => {
-                        error!("Second future poll resulted in error {:?}", e);
+                        error!("Second future poll resulted in error {e:?}");
                         self.state = ChainState::Second(future);
                         Err(e)
                     }

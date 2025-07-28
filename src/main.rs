@@ -12,22 +12,22 @@ fn main() {
 
     debug!("=== Testing Simple Runner ===\n");
     if let Err(e) = test_simple_runner() {
-        error!("Simple runner test failed: {:?}", e);
+        error!("Simple runner test failed: {e:?}");
     }
 
     debug!("=== Testing Poll Runner ===\n");
     if let Err(e) = test_poll_runner() {
-        error!("Poll runner test failed: {:?}", e);
+        error!("Poll runner test failed: {e:?}");
     }
 
     debug!("=== Testing Sequential Execution ===\n");
     if let Err(e) = test_sequential_execution() {
-        error!("Sequential execution test failed: {:?}", e);
+        error!("Sequential execution test failed: {e:?}");
     }
 
     debug!("=== Testing Chained Futures ===\n");
     if let Err(e) = test_chained_futures() {
-        error!("Chained futures test failed: {:?}", e);
+        error!("Chained futures test failed: {e:?}");
     }
 
     info!("All tests completed");

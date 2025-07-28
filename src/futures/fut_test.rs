@@ -1,9 +1,6 @@
 use crate::futures::{Chain, Done, FutError, FutResult, FutState, Future};
 use log::debug;
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::fmt::Debug;
-use std::rc::Rc;
+use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 
 pub trait FutureRunner {
     fn schedule<F>(&mut self, future: F)
@@ -76,7 +73,7 @@ pub struct PollRunner {
 
 impl PollRunner {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     fn handle_sleeping_futures(&mut self) {
@@ -196,7 +193,7 @@ impl<T: Debug> TrackDone<T> {
     pub fn new(val: T, tracker: Rc<RefCell<TestTracker>>, id: &str) -> Self {
         tracker
             .borrow_mut()
-            .track_exec_order(&format!("Creating {}", id));
+            .track_exec_order(&format!("Creating {id}"));
 
         Self {
             inner: Done::new(val),
@@ -257,21 +254,29 @@ pub fn test_sequential_execution() -> Result<(), FutError> {
 
     assert_eq!(tracker.results, vec![5, 10]);
 
-    assert!(tracker
-        .execution_order
-        .contains(&"Creating Future1".to_string()));
+    assert!(
+        tracker
+            .execution_order
+            .contains(&"Creating Future1".to_string())
+    );
 
-    assert!(tracker
-        .execution_order
-        .contains(&"Creating Future2".to_string()));
+    assert!(
+        tracker
+            .execution_order
+            .contains(&"Creating Future2".to_string())
+    );
 
-    assert!(tracker
-        .execution_order
-        .contains(&"Polling Future1".to_string()));
+    assert!(
+        tracker
+            .execution_order
+            .contains(&"Polling Future1".to_string())
+    );
 
-    assert!(tracker
-        .execution_order
-        .contains(&"Polling Future2".to_string()));
+    assert!(
+        tracker
+            .execution_order
+            .contains(&"Polling Future2".to_string())
+    );
 
     Ok(())
 }
