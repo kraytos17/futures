@@ -1,6 +1,6 @@
 //! A simple custom future executor framework supporting sequential and chained future execution.
 
-use crate::futures::{Chain, Done, FutError, FutResult, FutState, Future};
+use crate::futures::fut_core::{Chain, Done, FutError, FutResult, FutState, Future};
 use log::debug;
 use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 
