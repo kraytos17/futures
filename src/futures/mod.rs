@@ -1,29 +1,51 @@
+//! A minimalistic and custom future-like implementation.
+//!
+//! This module provides types and traits to simulate asynchronous computation behavior,
+//! including chaining of futures, completion states, and result wrapping.
+
 pub mod fut_test;
 
 use log::{debug, error};
 use std::{fmt::Debug, mem};
 
+/// Represents errors that may occur during future execution.
 #[derive(Debug)]
 pub enum FutError {
+    /// The future attempted to sleep or block in an unsupported way.
     SleepingUnsupported,
+
+    /// The future was polled after it had already completed.
     PolledAfterCompletion,
+
+    /// The future completed without returning a value.
     CompletedWithoutValue,
 }
 
+/// Represents the state of a future.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum FutState {
+    /// The future is still pending execution.
     Pending,
+
+    /// The future has completed.
     Done,
+
+    /// The future is temporarily waiting (e.g., on I/O).
     Waiting,
 }
 
+/// Encapsulates the result of polling a future.
 #[derive(Debug)]
 pub struct FutResult<T> {
+    /// The current state of the future.
     pub state: FutState,
+
+    /// The output value, if any.
     pub value: Option<T>,
 }
 
 impl<T: Debug> FutResult<T> {
+    /// Creates a new `FutResult` in the pending state with no value.
     pub fn pending() -> Self {
         debug!("Creating pending FutResult");
         Self {
@@ -32,6 +54,7 @@ impl<T: Debug> FutResult<T> {
         }
     }
 
+    /// Creates a new `FutResult` in the done state with the provided value.
     pub fn finished(val: T) -> Self {
         debug!("Creating finished FutResult with value {val:?}");
         Self {
@@ -41,20 +64,29 @@ impl<T: Debug> FutResult<T> {
     }
 }
 
+/// Trait representing a custom future with poll and cleanup logic.
 pub trait Future {
+    /// The output type returned when the future completes successfully.
     type Output;
+
+    /// The error type returned when polling fails.
     type Error;
 
+    /// Polls the future to attempt to resolve it.
     fn poll(&mut self) -> Result<FutResult<Self::Output>, Self::Error>;
+
+    /// Performs any necessary cleanup of resources.
     fn cleanup(&mut self);
 }
 
+/// A future that is immediately completed with a value.
 #[derive(Debug, Clone)]
 pub struct Done<T> {
     res: Option<T>,
 }
 
 impl<T: Debug> Done<T> {
+    /// Creates a new `Done` future containing the given value.
     pub fn new(val: T) -> Self {
         debug!("Creating new Done future with value {val:?}");
         Self { res: Some(val) }
@@ -79,12 +111,14 @@ impl<T: Clone + Debug> Future for Done<T> {
     }
 }
 
+/// A future that represents a failed computation.
 #[derive(Debug, Clone)]
 pub struct Failed<T> {
     err: Option<T>,
 }
 
 impl<T: Debug> Failed<T> {
+    /// Creates a new `Failed` future that will return the given error when polled.
     pub fn _new(err: T) -> Self {
         debug!("Creating new Reject future with err {err:?}");
         Self { err: Some(err) }
@@ -109,6 +143,7 @@ impl<T: Clone> Future for Failed<T> {
     }
 }
 
+/// Internal state used by the `Chain` future to track progress.
 #[derive(Debug, Clone)]
 enum ChainState<F1, F2, Fn>
 where
@@ -116,11 +151,17 @@ where
     F2: Future,
     Fn: FnOnce(F1::Output) -> F2,
 {
+    /// The first future is still being polled.
     First { future: F1, transform: Fn },
+
+    /// The second future is active.
     Second(F2),
+
+    /// Both futures have completed.
     Done,
 }
 
+/// A future that chains two futures: the second is created from the first's output.
 #[derive(Debug, Clone)]
 pub struct Chain<F1, F2, Fn>
 where
@@ -137,6 +178,7 @@ where
     F2: Future,
     Fn: FnOnce(F1::Output) -> F2,
 {
+    /// Creates a new chained future from a base future and a transformation function.
     pub fn new(future: F1, transform: Fn) -> Self {
         debug!("Creating new Chain future having future {future:?}");
         Self {
