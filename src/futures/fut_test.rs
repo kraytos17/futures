@@ -325,3 +325,26 @@ pub fn test_chained_futures() -> Result<(), FutError> {
 
     Ok(())
 }
+
+/// Test that explicitly uses the `Waiting` state in a FutResult.
+pub fn test_waiting_state() {
+    let res: FutResult<()> = FutResult {
+        state: FutState::Waiting,
+        value: None,
+    };
+    debug!("Constructed FutResult in Waiting state: {:?}", res);
+
+    assert_eq!(res.state, FutState::Waiting);
+    assert!(res.value.is_none());
+}
+
+/// Test that constructs and polls a `Failed` future.
+pub fn test_failed_future() {
+    use crate::futures::fut_core::Failed;
+
+    let mut f = Failed::_new("test-error".to_string());
+    let result = f.poll();
+
+    debug!("Polling Failed future returned: {:?}", result);
+    assert!(result.is_err());
+}
