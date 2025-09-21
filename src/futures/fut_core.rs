@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::fmt::Debug;
 
 /// A simple error type for our custom futures.
