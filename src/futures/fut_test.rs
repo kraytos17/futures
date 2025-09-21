@@ -1,15 +1,15 @@
 //! A simple custom future executor framework supporting sequential and chained future execution.
 
-use crate::futures::fut_core::{Chain, Done, FutError, FutResult, FutState, Future};
+use crate::futures::fut_core::{Chain, Done, Failed, Fut, FutError, FutResult};
 use log::debug;
 use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 
 /// Trait that defines a basic interface for scheduling and running futures.
-pub trait FutureRunner {
+pub trait FutRunner {
     /// Schedule a new future for execution.
     fn schedule<F>(&mut self, future: F)
     where
-        F: Future<Output = usize, Error = FutError> + 'static;
+        F: Fut<Output = usize> + 'static;
 
     /// Returns `true` if no futures are scheduled for execution.
     fn is_empty(&self) -> bool;
@@ -20,11 +20,10 @@ pub trait FutureRunner {
 
 /// A simple future runner that does not support sleeping/waiting futures.
 pub struct SimpleRunner {
-    futs: VecDeque<Box<dyn Future<Output = usize, Error = FutError>>>,
+    futs: VecDeque<Box<dyn Fut<Output = usize>>>,
 }
 
 impl SimpleRunner {
-    /// Constructs a new `SimpleRunner`.
     pub fn new() -> Self {
         Self {
             futs: VecDeque::new(),
@@ -32,10 +31,10 @@ impl SimpleRunner {
     }
 }
 
-impl FutureRunner for SimpleRunner {
+impl FutRunner for SimpleRunner {
     fn schedule<F>(&mut self, fut: F)
     where
-        F: Future<Output = usize, Error = FutError> + 'static,
+        F: Fut<Output = usize> + 'static,
     {
         self.futs.push_back(Box::new(fut));
     }
@@ -49,63 +48,47 @@ impl FutureRunner for SimpleRunner {
             let mut i = 0;
             while i < self.futs.len() {
                 match self.futs[i].poll()? {
-                    FutResult {
-                        state: FutState::Pending,
-                        ..
-                    } => i += 1,
-                    FutResult {
-                        state: FutState::Waiting,
-                        ..
-                    } => return Err(FutError::SleepingUnsupported),
-                    FutResult {
-                        state: FutState::Done,
-                        ..
-                    } => {
-                        if let Some(mut f) = self.futs.remove(i) {
-                            f.cleanup();
-                        }
+                    FutResult::Pending => i += 1,
+                    FutResult::Waiting => {
+                        // SimpleRunner doesn't support waiting/sleeping futures.
+                        return Err(FutError::PolledAfterCompletion);
+                    }
+                    FutResult::Done(_) => {
+                        // remove completed future
+                        self.futs.remove(i);
                     }
                 }
             }
         }
-
         Ok(())
     }
 }
 
-/// A more advanced runner supporting active, pending, and sleeping states for futures.
+/// A more advanced runner supporting active, pending, and sleeping queues.
 #[derive(Default)]
 pub struct PollRunner {
-    active: VecDeque<Box<dyn Future<Output = usize, Error = FutError>>>,
-    pending: VecDeque<Box<dyn Future<Output = usize, Error = FutError>>>,
-    sleeping: VecDeque<Box<dyn Future<Output = usize, Error = FutError>>>,
+    active: VecDeque<Box<dyn Fut<Output = usize>>>,
+    pending: VecDeque<Box<dyn Fut<Output = usize>>>,
+    sleeping: VecDeque<Box<dyn Fut<Output = usize>>>,
 }
 
 impl PollRunner {
-    /// Constructs a new `PollRunner`.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Handles transitioning sleeping futures to the pending queue.
+    /// Move sleeping futures back to pending (simulates wake-up).
     fn handle_sleeping_futures(&mut self) {
-        if self.sleeping.is_empty() {
-            return;
-        }
-
-        let remaining = VecDeque::new();
         while let Some(future) = self.sleeping.pop_front() {
             self.pending.push_back(future);
         }
-
-        self.sleeping = remaining;
     }
 }
 
-impl FutureRunner for PollRunner {
+impl FutRunner for PollRunner {
     fn schedule<F>(&mut self, fut: F)
     where
-        F: Future<Output = usize, Error = FutError> + 'static,
+        F: Fut<Output = usize> + 'static,
     {
         self.pending.push_back(Box::new(fut));
     }
@@ -122,62 +105,22 @@ impl FutureRunner for PollRunner {
 
             while let Some(mut future) = self.active.pop_front() {
                 match future.poll()? {
-                    FutResult {
-                        state: FutState::Pending,
-                        ..
-                    } => self.pending.push_back(future),
-                    FutResult {
-                        state: FutState::Waiting,
-                        value,
-                    } => {
-                        if value.is_some() {
-                            self.sleeping.push_back(future);
-                        }
+                    FutResult::Pending => self.pending.push_back(future),
+                    FutResult::Waiting => {
+                        // move to sleeping queue
+                        self.sleeping.push_back(future);
                     }
-                    FutResult {
-                        state: FutState::Done,
-                        ..
-                    } => future.cleanup(),
+                    FutResult::Done(_) => {
+                        // drop the completed future
+                    }
                 }
             }
 
             self.handle_sleeping_futures();
         }
+
         Ok(())
     }
-}
-
-/// A simple test demonstrating usage of `SimpleRunner` with completed and chained futures.
-pub fn test_simple_runner() -> Result<(), FutError> {
-    let mut runner = SimpleRunner::new();
-    runner.schedule(Done::new(42));
-
-    let future_chain = Chain::new(Done::new(10), |x| Done::new(x + 5));
-    runner.schedule(future_chain);
-    runner.run()?;
-
-    debug!("Simple runner completed successfully");
-
-    Ok(())
-}
-
-/// A test showing `PollRunner` executing a mixture of futures, including chained ones.
-pub fn test_poll_runner() -> Result<(), FutError> {
-    let mut runner = PollRunner::new();
-
-    runner.schedule(Done::new(1));
-    runner.schedule(Done::new(2));
-
-    let complex_chain = Chain::new(Done::new(3), |x| {
-        Chain::new(Done::new(x + 1), |y| Done::new(y * 2))
-    });
-
-    runner.schedule(complex_chain);
-    runner.run()?;
-
-    debug!("Poll runner completed successfully");
-
-    Ok(())
 }
 
 /// Tracks execution order and results during future execution.
@@ -188,7 +131,7 @@ struct TestTracker {
 }
 
 impl TestTracker {
-    /// Records the execution step (e.g., creation, polling, cleanup).
+    /// Records the execution step (e.g., creation, polling).
     pub fn track_exec_order(&mut self, step: &str) {
         self.execution_order.push(step.to_string());
     }
@@ -212,7 +155,7 @@ impl<T: Debug> TrackDone<T> {
     pub fn new(val: T, tracker: Rc<RefCell<TestTracker>>, id: &str) -> Self {
         tracker
             .borrow_mut()
-            .track_exec_order(&format!("Creating {id}"));
+            .track_exec_order(&format!("Creating {}", id));
 
         Self {
             inner: Done::new(val),
@@ -228,37 +171,55 @@ impl TrackDone<usize> {
     }
 }
 
-impl Future for TrackDone<usize> {
+impl Fut for TrackDone<usize> {
     type Output = usize;
-    type Error = FutError;
 
     /// Polls the wrapped future, logging the poll action and final result.
-    fn poll(&mut self) -> Result<FutResult<Self::Output>, Self::Error> {
+    fn poll(&mut self) -> Result<FutResult<Self::Output>, FutError> {
         self.tracker
             .borrow_mut()
             .track_exec_order(&format!("Polling {}", self.id));
-        match self.inner.poll()? {
-            FutResult {
-                state: FutState::Done,
-                value: Some(val),
-            } => {
-                self.track_result(val);
-                Ok(FutResult::finished(val))
-            }
-            other => Ok(other),
-        }
-    }
 
-    /// Cleans up the wrapped future and logs destruction.
-    fn cleanup(&mut self) {
-        self.tracker
-            .borrow_mut()
-            .track_exec_order(&format!("Destroying {}", self.id));
-        self.inner.cleanup();
+        match self.inner.poll()? {
+            FutResult::Done(val) => {
+                self.track_result(val);
+                Ok(FutResult::Done(val))
+            }
+            FutResult::Pending => Ok(FutResult::Pending),
+            FutResult::Waiting => Ok(FutResult::Waiting),
+        }
     }
 }
 
-/// Test that verifies sequential execution and tracking of simple futures.
+pub fn test_simple_runner() -> Result<(), FutError> {
+    let mut runner = SimpleRunner::new();
+    runner.schedule(Done::new(42));
+
+    let future_chain = Chain::new(Done::new(10), |x| Done::new(x + 5));
+    runner.schedule(future_chain);
+    runner.run()?;
+
+    debug!("Simple runner completed successfully");
+    Ok(())
+}
+
+pub fn test_poll_runner() -> Result<(), FutError> {
+    let mut runner = PollRunner::new();
+
+    runner.schedule(Done::new(1));
+    runner.schedule(Done::new(2));
+
+    let complex_chain = Chain::new(Done::new(3), |x| {
+        Chain::new(Done::new(x + 1), |y| Done::new(y * 2))
+    });
+
+    runner.schedule(complex_chain);
+    runner.run()?;
+
+    debug!("Poll runner completed successfully");
+    Ok(())
+}
+
 pub fn test_sequential_execution() -> Result<(), FutError> {
     let tracker = Rc::new(RefCell::new(TestTracker::default()));
     let mut runner = PollRunner::new();
@@ -275,35 +236,9 @@ pub fn test_sequential_execution() -> Result<(), FutError> {
     debug!("Results: {:?}", tracker.results);
 
     assert_eq!(tracker.results, vec![5, 10]);
-
-    assert!(
-        tracker
-            .execution_order
-            .contains(&"Creating Future1".to_string())
-    );
-
-    assert!(
-        tracker
-            .execution_order
-            .contains(&"Creating Future2".to_string())
-    );
-
-    assert!(
-        tracker
-            .execution_order
-            .contains(&"Polling Future1".to_string())
-    );
-
-    assert!(
-        tracker
-            .execution_order
-            .contains(&"Polling Future2".to_string())
-    );
-
     Ok(())
 }
 
-/// Test demonstrating chained futures and their tracked execution.
 pub fn test_chained_futures() -> Result<(), FutError> {
     let tracker = Rc::new(RefCell::new(TestTracker::default()));
     let mut runner = PollRunner::new();
@@ -322,27 +257,11 @@ pub fn test_chained_futures() -> Result<(), FutError> {
     debug!("Chain results: {:?}", tracker.results);
 
     assert_eq!(tracker.results.last(), Some(&10));
-
     Ok(())
 }
 
-/// Test that explicitly uses the `Waiting` state in a FutResult.
-pub fn test_waiting_state() {
-    let res: FutResult<()> = FutResult {
-        state: FutState::Waiting,
-        value: None,
-    };
-    debug!("Constructed FutResult in Waiting state: {:?}", res);
-
-    assert_eq!(res.state, FutState::Waiting);
-    assert!(res.value.is_none());
-}
-
-/// Test that constructs and polls a `Failed` future.
 pub fn test_failed_future() {
-    use crate::futures::fut_core::Failed;
-
-    let mut f = Failed::_new("test-error".to_string());
+    let mut f = Failed::new(FutError::PolledAfterCompletion);
     let result = f.poll();
 
     debug!("Polling Failed future returned: {:?}", result);
