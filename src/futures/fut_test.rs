@@ -107,7 +107,6 @@ impl FutRunner for PollRunner {
                 match future.poll()? {
                     FutResult::Pending => self.pending.push_back(future),
                     FutResult::Waiting => {
-                        // move to sleeping queue
                         self.sleeping.push_back(future);
                     }
                     FutResult::Done(_) => {
@@ -155,7 +154,7 @@ impl<T: Debug> TrackDone<T> {
     pub fn new(val: T, tracker: Rc<RefCell<TestTracker>>, id: &str) -> Self {
         tracker
             .borrow_mut()
-            .track_exec_order(&format!("Creating {}", id));
+            .track_exec_order(&format!("Creating {id}"));
 
         Self {
             inner: Done::new(val),
@@ -264,6 +263,6 @@ pub fn test_failed_future() {
     let mut f = Failed::new(FutError::PolledAfterCompletion);
     let result = f.poll();
 
-    debug!("Polling Failed future returned: {:?}", result);
+    debug!("Polling Failed future returned: {result:?}");
     assert!(result.is_err());
 }
